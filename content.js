@@ -1,84 +1,118 @@
-const header = document.querySelector("#header");
+// Function to check login status and initialize the tracker
+function init() {
+    const authLink = document.querySelector('.lang-chooser a[href^="/profile/"]');
+    const signbar = document.querySelector('.lang-chooser');
 
-const handle = header.querySelector("a[href*='/profile/']")?.textContent;
-if (!handle) return;
+    if (!authLink) {
+        if (signbar) {
+            const loginMsg = document.createElement('span');
+            loginMsg.textContent = " | Login to Codeforces to see your streak";
+            loginMsg.style.color = "gray";
+            loginMsg.style.marginLeft = "10px";
+            loginMsg.style.fontSize = "12px";
+            signbar.appendChild(loginMsg);
+        }
+        return;
+    }
 
-header.style.display = "flex";
-header.style.alignItems = "center";
-header.style.justifyContent = "space-between";
+    const handle = authLink.textContent.trim();
+    
+    fetchStreak(handle).then(streak => {
+        injectUI(streak);
+    });
+}
 
-const div = document.createElement("div");
-div.id = "streak";
-div.style.display = "flex";
-div.style.alignItems = "center";
-div.style.marginRight = "30px";
-div.style.marginLeft = "auto";
-div.style.cursor = "pointer";
-div.title = "Your current streak";
-
-header.insertBefore(div, header.children[1]);
-
-const updateDiv = (streak) => {
-    div.innerHTML = `
-        <img src="${chrome.runtime.getURL(
-            streak > 0 ? "icons/on.svg" : "icons/off.svg"
-        )}" style="width:20px; height:20px; margin-right:5px;">
-        <span style="font-size:16px; font-weight:bold;">${streak}</span>
-    `;
-};
-
-const today5AM = () => {
-    const now = new Date();
-    const today5AM = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate(),
-        5,
-        0,
-        0
-    );
-    if (now < today5AM) today5AM.setDate(today5AM.getDate() - 1);
-    return Math.floor(today5AM.getTime() / 1000);
-};
-
-const fetchStreak = async () => {
-    let from = 1;
-    const batchSize = 100;
-    let streak = 0;
-    let curentDay = today5AM();
-    let foundAC = false;
-    const oneDay = 86400;
-
-    while (true) {
-        const response = await fetch(
-            `https://codeforces.com/api/user.status?handle=${handle}&from=${from}&count=${batchSize}`
-        );
-        const data = await response.json();
-        if (data.status !== "OK") return streak;
+// Function to fetch submissions and calculate the current streak
+async function fetchStreak(handle) {
+    try {
+        const res = await fetch(`https://codeforces.com/api/user.status?handle=${handle}&from=1&count=500`);
+        const data = await res.json();
+        
+        if (data.status !== 'OK') return 0;
 
         const submissions = data.result;
-        if (submissions.length === 0) return streak;
+        const solvedDates = new Set();
 
-        for (const submission of submissions) {
-            const t = submission.creationTimeSeconds;
-            if (foundAC && t >= curentDay) continue;
-            if (foundAC && t < curentDay) {
-                if (t >= curentDay - oneDay) {
-                    streak++;
-                    curentDay -= oneDay;
-                    foundAC = submission.verdict === "OK";
-                } else return streak;
+        submissions.forEach(sub => {
+            if (sub.verdict === 'OK') {
+                const date = new Date(sub.creationTimeSeconds * 1000);
+                solvedDates.add(date.toDateString());
             }
-            if (!foundAC && t < curentDay) return streak;
-            if (!foundAC && t >= curentDay)
-                foundAC = submission.verdict === "OK";
+        });
+
+        let streak = 0;
+        let currentDate = new Date();
+        let todayStr = currentDate.toDateString();
+        
+        currentDate.setDate(currentDate.getDate() - 1);
+        let yesterdayStr = currentDate.toDateString();
+
+        let dateToCheck = new Date();
+
+        if (!solvedDates.has(todayStr) && !solvedDates.has(yesterdayStr)) {
+            return 0;
         }
 
-        from += batchSize;
-    }
-};
+        if (!solvedDates.has(todayStr) && solvedDates.has(yesterdayStr)) {
+            dateToCheck.setDate(dateToCheck.getDate() - 1);
+        }
 
-window.addEventListener("load", async () => {
-    const streak = await fetchStreak();
-    updateDiv(streak);
-});
+        while (solvedDates.has(dateToCheck.toDateString())) {
+            streak++;
+            dateToCheck.setDate(dateToCheck.getDate() - 1);
+        }
+
+        return streak;
+
+    } catch (error) {
+        console.error("CF Streak Tracker Error:", error);
+        return 0;
+    }
+}
+
+// Function to inject the UI next to the logo
+function injectUI(streak) {
+    const container = document.createElement('div');
+    container.style.display = 'inline-flex';
+    container.style.alignItems = 'center';
+    
+    // Layout adjustments for the top-left position
+    container.style.float = 'left'; 
+    container.style.marginLeft = '20px'; 
+    container.style.marginTop = '15px'; 
+    
+    container.style.fontWeight = '900'; 
+    container.style.fontSize = '22px'; 
+    container.style.fontFamily = '"Segoe UI", Roboto, Helvetica, Arial, sans-serif'; 
+
+    const isLit = streak > 0;
+    
+    // Original light theme colors uniformly applied
+    const litColor = '#FFB300'; // Orangish-Yellow
+    const unlitColor = '#007bff'; // Classic Blue
+    const color = isLit ? litColor : unlitColor;
+
+    // Load local GIFs from the assets folder
+    const fireGifURL = chrome.runtime.getURL("assets/fire.gif");
+    const iceGifURL = chrome.runtime.getURL("assets/ice.gif");
+    
+    // Both icons set to 56px
+    const iconUnlit = `<img src="${iceGifURL}" style="width: 56px; height: 56px; display: block;">`; 
+    const iconLit = `<img src="${fireGifURL}" style="width: 56px; height: 56px; display: block;">`;
+
+    container.innerHTML = `
+        <span style="display: flex; align-items: center; justify-content: center; margin-right: 8px;">
+            ${isLit ? iconLit : iconUnlit}
+        </span>
+        <span style="color: ${color}; text-shadow: 1px 1px 2px rgba(0,0,0,0.1);">${streak}</span>
+    `;
+
+    // Find the div containing the Codeforces logo and inject right after it
+    const logoContainer = document.querySelector('#header > div:first-child');
+    if (logoContainer) {
+        logoContainer.parentNode.insertBefore(container, logoContainer.nextSibling);
+    }
+}
+
+// Run the script
+init();
